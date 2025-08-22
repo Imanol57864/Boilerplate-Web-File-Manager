@@ -1,6 +1,5 @@
 # Boilerplate Web File Manager
-
-## FilePond Spike - Sistema de Gestión de Archivos
+`FilePond Spike - Sistema de Gestión de Archivos`
 Un boilerplate completo para aplicaciones web que necesiten un sistema de manejo de archivos.
 
 ## Características Principales
