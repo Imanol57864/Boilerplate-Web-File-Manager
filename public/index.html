@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>FilePond + Botón Ver</title>
+
+    <!-- CSS de FilePond -->
+    <link href="/css/filepond.css" rel="stylesheet">
+    <link href="/css/filepond.imagepreview.css" rel="stylesheet">
+
+    <!-- JS de FilePond y plugins -->
+    <script src="/js/filepond.js"></script>
+    <script src="/js/filepond.imagepreview.js"></script>
+    <script src="/js/filepond.validatesize.js"></script>
+    <script src="/js/filepond.validatetype.js"></script>
+    
+    <style>
+        body {
+            padding: 20px;
+            font-family: Arial, sans-serif;
+        }
+
+        /* Ajuste de estilo para el botón Ver */
+        .filepond--file-action-button.view-btn {
+            background: #1d4ed8;
+            color: white;
+            border-radius: 3px;
+            padding: 2px 6px;
+            font-size: 0.8rem;
+            margin-left: 5px;
+        }
+
+        .filepond--file-action-button.view-btn:hover {
+            background: #2563eb;
+        }
+
+        /* Estilos para hacer clickeable el área del archivo */
+        .filepond--file {
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+
+        .filepond--file:hover {
+            background-color: rgba(29, 78, 216, 0.1);
+        }
+
+        /* Indicador visual de que es clickeable */
+        .filepond--file::after {
+            content: "Click para ver";
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: rgba(29, 78, 216, 0.8);
+            color: white;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.7rem;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+
+        .filepond--file:hover::after {
+            opacity: 1;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>Sube y gestiona tus archivos</h2>
+    <input type="file" class="filepond" name="file" multiple />
+
+    <script>
+        FilePond.registerPlugin(
+            FilePondPluginImagePreview,
+            FilePondPluginFileValidateSize,
+            FilePondPluginFileValidateType
+        );
+
+        const viewableTypes = [
+            'application/pdf',
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.ms-excel',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        ];
+
+        // Función que será llamada al hacer click
+        function llamarEndpoint(fileName) {
+            console.log('Abriendo archivo:', fileName);
+            // Abre el archivo en nueva pestaña usando tu endpoint
+            window.open(`/api/view/${encodeURIComponent(fileName)}`, '_blank');
+        }
+
+        // Función mejorada para obtener el nombre del archivo desde diferentes estructuras DOM
+        function getFileNameFromElement(fileElement) {
+            // Intenta diferentes selectores según la estructura DOM
+            let fileName = '';
+            
+            // Para archivos con preview de imagen
+            const legend = fileElement.querySelector('legend');
+            if (legend) {
+                fileName = legend.textContent.trim();
+            }
+            
+            // Para archivos sin preview - busca en el nombre del archivo
+            if (!fileName) {
+                const fileInfo = fileElement.querySelector('.filepond--file-info-main');
+                if (fileInfo) {
+                    fileName = fileInfo.textContent.trim();
+                }
+            }
+            
+            // Fallback - busca en cualquier elemento que contenga el nombre
+            if (!fileName) {
+                const fileStatus = fileElement.querySelector('.filepond--file-status-main');
+                if (fileStatus && fileStatus.textContent.includes('.')) {
+                    fileName = fileStatus.textContent.trim();
+                }
+            }
+            
+            // Último fallback - busca en los datos del archivo
+            if (!fileName && fileElement._file) {
+                fileName = fileElement._file.filename || fileElement._file.file.name;
+            }
+            
+            return fileName;
+        }
+
+        // Función para agregar eventos onClick de forma más robusta
+        function addClickEvents() {
+            // Busca todos los elementos de archivo, tanto con wrapper como sin él
+            const fileElements = document.querySelectorAll('.filepond--file');
+            
+            fileElements.forEach(fileElement => {
+                if (!fileElement.dataset.clickAdded) {
+                    const fileName = getFileNameFromElement(fileElement);
+                    
+                    if (fileName) {
+                        fileElement.addEventListener('click', (e) => {
+                            // Evita que el click interfiera con los botones de acción
+                            if (e.target.closest('.filepond--file-action-button')) {
+                                return;
+                            }
+                            
+                            llamarEndpoint(fileName);
+                        });
+                        
+                        fileElement.dataset.clickAdded = 'true';
+                        console.log('Click event añadido para:', fileName);
+                    }
+                }
+            });
+        }
+
+        const pond = FilePond.create(document.querySelector('.filepond'), {
+            allowMultiple: true,
+            maxFiles: 3,
+            allowFileTypeValidation: true,
+            acceptedFileTypes: ['image/*', ...viewableTypes],
+            allowFileSizeValidation: true,
+            maxFileSize: '10MB',
+            minFileSize: '1KB',
+
+            // Callbacks para agregar eventos cuando los archivos se procesan
+            onaddfile: (error, file) => {
+                if (!error) {
+                    setTimeout(addClickEvents, 100);
+                }
+            },
+            
+            onprocessfile: (error, file) => {
+                if (!error) {
+                    setTimeout(addClickEvents, 100);
+                }
+            },
+
+            server: {
+                process: {
+                    url: '/api/upload',
+                    method: 'POST',
+                    onload: (response) => {
+                        const file = JSON.parse(response);
+                        return file.id;
+                    }
+                },
+                revert: (uniqueFileId, load, error) => {
+                    fetch(`/api/upload/${uniqueFileId}`, { method: 'DELETE' })
+                        .then(() => load())
+                        .catch(() => error('Error deleting file'));
+                },
+                remove: (uniqueFileId, load, error) => {
+                    fetch(`/api/upload/${uniqueFileId}`, { method: 'DELETE' })
+                        .then(() => load())
+                        .catch(() => error('Error deleting file'));
+                },
+                load: async (uniqueFileId, load, error) => {
+                    try {
+                        const res = await fetch(`/uploads/${uniqueFileId}`);
+                        if (!res.ok) throw new Error('File not found');
+                        const blob = await res.blob();
+                        const file = new File([blob], uniqueFileId, { type: blob.type });
+                        load(file);
+                    } catch (err) {
+                        error('Error loading file');
+                    }
+                }
+            },
+        });
+
+        // Cargar archivos existentes
+        fetch("/api/files")
+            .then(res => res.json())
+            .then(files => {
+                files.forEach(fileData => {
+                    pond.addFile(fileData.id, { type: 'local' }).then(file => {
+                        file.serverId = fileData.id;
+                        setTimeout(addClickEvents, 200);
+                    });
+                });
+            })
+            .catch(err => console.error('Error loading existing files:', err));
+
+        // Observer mejorado que funciona para diferentes estructuras DOM
+        setTimeout(() => {
+            const pondWrapper = document.querySelector('.filepond');
+            
+            const observer = new MutationObserver(() => {
+                addClickEvents();
+            });
+
+            observer.observe(pondWrapper, { 
+                childList: true, 
+                subtree: true,
+                attributes: true,
+                attributeFilter: ['class']
+            });
+            
+            // Llamada inicial
+            addClickEvents();
+        }, 100);
+    </script>
+    
+</body>
+
+</html>
